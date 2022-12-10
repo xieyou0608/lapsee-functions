@@ -45,23 +45,24 @@ app.get("/questions/random", async (req, res) => {
 });
 
 // 取得 rank
-app.get("/rank/:game", async (req, res) => {
-  const game = req.params.game;
-  console.log("get /rank/" + game);
-  try {
-    const snapshot = await admin
-      .database()
-      .ref("/rank/" + game)
-      .once("value");
-    const curRank = snapshot.val();
+// 改成開放權限直接用 REST API 讀即可
+// app.get("/rank/:game", async (req, res) => {
+//   const game = req.params.game;
+//   console.log("get /rank/" + game);
+//   try {
+//     const snapshot = await admin
+//       .database()
+//       .ref("/rank/" + game)
+//       .once("value");
+//     const curRank = snapshot.val();
 
-    if (!curRank) return res.send([]);
-    res.send(curRank);
-  } catch (error) {
-    console.log(error);
-    res.status(500).send("something went wrong!");
-  }
-});
+//     if (!curRank) return res.send([]);
+//     res.send(curRank);
+//   } catch (error) {
+//     console.log(error);
+//     res.status(500).send("something went wrong!");
+//   }
+// });
 
 // 提交分數
 app.post("/rank/:game", async (req, res) => {
@@ -96,8 +97,6 @@ app.post("/rank/:game", async (req, res) => {
   }
 });
 
-exports.api = functions.region("asia-east1").https.onRequest(app);
-
 // *****線上遊戲*****
 
 // 知識王
@@ -110,55 +109,56 @@ exports.api = functions.region("asia-east1").https.onRequest(app);
 // 方法一: transaction
 // 不能在這裡 setTimeout，在 functions setTimeout 的時間會計費
 // 改成先更新 backEndRound，但前端顯示的 round 另外處理來做一些答題延遲
-exports.chooseAnswer = functions
-  .region("asia-east1")
-  .database.ref("/onlineRoom/quiz/{roomId}/playerChosen/{roundNum}/{userId}")
-  .onCreate(async (snapshot, context) => {
-    const { roomId, roundNum, userId } = context.params;
-    const chosen = snapshot.val().chosen;
-    const roomRef = snapshot.ref.parent.parent.parent;
-    console.log(`[${roomId}] round ${roundNum}: ${userId} choose ${chosen}`);
+// 目前測試用 transaction 速度偏慢
+// exports.chooseAnswer = functions
+//   .region("asia-east1")
+//   .database.ref("/onlineRoom/quiz/{roomId}/playerChosen/{roundNum}/{userId}")
+//   .onCreate(async (snapshot, context) => {
+//     const { roomId, roundNum, userId } = context.params;
+//     const chosen = snapshot.val().chosen;
+//     const roomRef = snapshot.ref.parent.parent.parent;
+//     console.log(`[${roomId}] round ${roundNum}: ${userId} choose ${chosen}`);
 
-    return roomRef.transaction((room) => {
-      if (room === null) {
-        return null;
-      }
-      // console.log("transaction", userId);
-      const { questions, players, playerChosen, round } = room;
-      if (chosen === questions[round].answer) {
-        room.players[userId].combo += 1;
-        room.players[userId].score += 100;
-      } else {
-        room.players[userId].combo = 0;
-      }
-      room.playerChosen[round][userId].judged = true;
+//     return roomRef.transaction((room) => {
+//       if (room === null) {
+//         return null;
+//       }
+//       // console.log("transaction", userId);
+//       const { questions, players, playerChosen, round } = room;
+//       if (chosen === questions[round].answer) {
+//         room.players[userId].combo += 1;
+//         room.players[userId].score += 100;
+//       } else {
+//         room.players[userId].combo = 0;
+//       }
+//       room.playerChosen[round][userId].judged = true;
 
-      // 重要: 兩個人同時選答案的話
-      // 兩個 trigger functions 有可能同時拿到長度=2的 playerChosen
-      // 用 judged 來判斷才安全
-      const chosenObj = playerChosen[round];
-      if (Object.keys(chosenObj).length === 2) {
-        const [A, B] = Object.keys(chosenObj);
-        const roundEnd = chosenObj[A].judged && chosenObj[B].judged;
-        if (roundEnd) {
-          if (round === 9) {
-            if (players[A].score > players[B].score) {
-              room.endMessage = `${players[A].userName} 贏了!`;
-            } else if (players[A].score < players[B].score) {
-              room.endMessage = `${players[B].userName} 贏了!`;
-            } else {
-              room.endMessage = "平手!";
-            }
-          }
-          // 前端會 handle round = 10，代表結束
-          room.round += 1;
-        }
-      }
-      return room;
-    });
-  });
+//       // 重要: 兩個人同時選答案的話
+//       // 兩個 trigger functions 有可能同時拿到長度=2的 playerChosen
+//       // 用 judged 來判斷才安全
+//       const chosenObj = playerChosen[round];
+//       if (Object.keys(chosenObj).length === 2) {
+//         const [A, B] = Object.keys(chosenObj);
+//         const roundEnd = chosenObj[A].judged && chosenObj[B].judged;
+//         if (roundEnd) {
+//           if (round === 9) {
+//             if (players[A].score > players[B].score) {
+//               room.endMessage = `${players[A].userName} 贏了!`;
+//             } else if (players[A].score < players[B].score) {
+//               room.endMessage = `${players[B].userName} 贏了!`;
+//             } else {
+//               room.endMessage = "平手!";
+//             }
+//           }
+//           // 前端會 handle round = 10，代表結束
+//           room.round += 1;
+//         }
+//       }
+//       return room;
+//     });
+//   });
 
-// // 方法二: Atomic server-side increments
+// 方法二: Atomic server-side increments
 // exports.updateChosen = functions
 //   .region("asia-east1")
 //   .database.ref(
@@ -186,7 +186,7 @@ exports.chooseAnswer = functions
 //     return roomRef.update(updates);
 //   });
 
-// // judged 之後 update round
+// judged 之後 update round
 // exports.updateRound = functions
 //   .region("asia-east1")
 //   .database.ref(
@@ -223,3 +223,69 @@ exports.chooseAnswer = functions
 //       return roomRef.update(updates);
 //     });
 //   });
+
+// 方法三: 提交答案不用triggers
+// 直接交答案給 functions，資料庫規則可以改 false
+app.post("/onlineRoom/quiz/:roomId/playerChosen/:round", async (req, res) => {
+  try {
+    const { roomId, round } = req.params;
+    const { userId, chosen } = req.body;
+    console.log(`[${roomId}](${round}): ${userId} choose ${chosen}`);
+
+    const roomRef = admin.database().ref(`/onlineRoom/quiz/${roomId}`);
+    const snapshot = await roomRef.once("value");
+    const roomInfo = snapshot.val();
+    const { questions, players } = roomInfo;
+
+    let updates = {};
+    updates[`/playerChosen/${round}/${userId}/chosen`] = chosen;
+    updates[`/playerChosen/${round}/${userId}/judged`] = true;
+    if (chosen === questions[round].answer) {
+      updates[`/players/${userId}/combo`] = players[userId].combo + 1;
+      updates[`/players/${userId}/score`] = players[userId].score + 100;
+    } else {
+      updates[`/players/${userId}/combo`] = 0;
+    }
+
+    await roomRef.update(updates);
+
+    res.send("提交答案成功");
+  } catch (error) {
+    console.log(error);
+    res.status(500).send("something went wrong!");
+  }
+});
+
+// 交給 triggers 觸發下一回合
+// 第一個人傳答案的時候會 create playerChosen/{round}
+// 第二個人是 update，所以監控 update 就會是兩個人都處理好答案的時候，不用再檢查 judged
+exports.updateRound = functions
+  .region("asia-east1")
+  .database.ref("/onlineRoom/quiz/{roomId}/playerChosen/{round}")
+  .onUpdate(async (change, context) => {
+    const roomId = context.params.roomId;
+    const round = +context.params.round; // round 要先轉成數字
+    console.log(`[${roomId}](${round}): update round`);
+
+    const roomRef = change.after.ref.parent.parent;
+    let updates = {};
+    updates["/round"] = round + 1;
+
+    // 遊戲結束算分
+    if (round === 9) {
+      const snap = await roomRef.child("players").once("value");
+      const players = snap.val();
+      const [A, B] = Object.keys(players);
+
+      if (players[A].score > players[B].score) {
+        updates["/endMessage"] = `${players[A].userName} 贏了!`;
+      } else if (players[A].score < players[B].score) {
+        updates["/endMessage"] = `${players[B].userName} 贏了!`;
+      } else {
+        updates["/endMessage"] = "平手!";
+      }
+    }
+    return roomRef.update(updates);
+  });
+
+exports.api = functions.region("asia-east1").https.onRequest(app);
